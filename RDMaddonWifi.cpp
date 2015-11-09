@@ -11,7 +11,7 @@ PFN_GetRSSI GetRSSI=NULL;
 // The loadlibrary HINSTANCE destination
 HINSTANCE h802lib=NULL;
 
-#define MYDEBUG
+//#define MYDEBUG	//for testing
 
 SYSTEM_POWER_STATUS_EX pwrStatus;
 
@@ -51,13 +51,18 @@ DWORD FLOATHEIGHT	=	80; //100 //100                     // Height of floating wn
 // vars for the drawings 
 // 
 //colors
-unsigned long colorRed=RGB(255,0,0);
-unsigned long colorGreen=RGB(0,0xB6,0);
-unsigned long colorYellow=RGB(255,255,0);
-unsigned long colorGreenLight=RGB(0,0xFF,0);
-unsigned long colorBatt=RGB(100,100,100);
-unsigned long colorUnknown=RGB(0xC0,0xC0,0xC0);
-unsigned long colorWinBackground=RGB(0x04,0x4A,0x1C);
+unsigned long colorLevelHigh		=	RGB(0,		0xFF,	0xff);
+unsigned long colorLevelBelowHigh	=	RGB(0,		0x99,	0xFF);
+unsigned long colorLevelBelowMid	=	RGB(0xFF,	0xD8,	0x00);
+unsigned long colorLevelBad			=	RGB(0xff,	0x6A,	0x00);
+
+unsigned long colorLevelUnknow		=	RGB(0xFF,	0xE4,	0xFF);
+
+unsigned long colorBatt				=	RGB(0x80,	0x80,	0x80);
+
+
+unsigned long colorWinBackground	=	RGB(0x04,	0x4A,	0x1C);
+
 static HBRUSH hBackground = CreateSolidBrush( colorWinBackground );
 
 DWORD dwTimerID=1000;
@@ -76,7 +81,23 @@ BOOL			InitInstance(HINSTANCE, int);
 LRESULT CALLBACK	WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK	About(HWND, UINT, WPARAM, LPARAM);
 
+int getPercentRSSI(int iRSSI){
+	//iRSSI = -30 to -100
+	int iRet=iRSSI+100;
+	iRet=iRet*1.4;
+	return iRet;
+}
+
+int _level=-30;
+
 int getValueLevel(){
+#ifdef MYDEBUG
+	int iRSSI=getPercentRSSI(_level);
+	_level-=25/1.4;
+	if(_level<-100)
+		_level=-30;
+	return iRSSI;
+#endif
 	int iLevel = 0;
 	if(h802lib == NULL)
 		h802lib = LoadLibrary(_T("80211api.dll"));
@@ -184,11 +205,14 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     }
 
 	HWND hWndTS = FindWindow(L"TSSHELLWND", NULL);
+#ifndef MYDEBUG
 	if(hWndTS==NULL){
 		DEBUGMSG(1, (L"### TSSHELLWND not found. EXIT. ###\n"));
 		return FALSE;
 	}
-
+#else
+	hWndTS=GetForegroundWindow();
+#endif
     //hWnd = CreateWindow(szWindowClass, szTitle, WS_VISIBLE,
     //    CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, NULL, NULL, hInstance, NULL);
 
@@ -225,7 +249,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	dwH=blockCount*blockHeight + blockCount*blockMargin + blockMargin;// + GetSystemMetrics(SM_CYEDGE) * 2;//FLOATHEIGHT;
 	//position
 	dwX=screenX-blockWidth;// FLOATWIDTH;
-	dwY=screenY/2-dwH;//-FLOATHEIGHT;
+	dwY=screenY/2-dwH-blockHeight;//move lower end to mid //-FLOATHEIGHT; 
 
 	//MoveWindow(hWnd, dwX, dwY, dwW, dwH, TRUE);
 
@@ -257,9 +281,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     PAINTSTRUCT ps;
     HDC hdc;
 	RECT rect;
-	static HBRUSH hBr, hBrBatt, hbrRed, hbrYellow, hbrGreen, hbrUnknown, hbrOrange;
+	static HBRUSH hBr, hBrBatt, hbrLevelLow, hbrLevelBelowMid, hbrLevelHigh, hbrLevelUnknown, hbrLevelBelowHigh;
 	static HPEN hPen;
-	unsigned long fillColor = colorYellow;
+	unsigned long fillColor = colorLevelBelowMid;
 	static int iValueLevel=100;
 	int iRes=0;
 
@@ -285,22 +309,22 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 			hBr = CreateSolidBrush( fillColor );
 			hBrBatt = CreateSolidBrush ( colorBatt );
-			hbrRed = CreateSolidBrush(colorRed);
-			hbrYellow = CreateSolidBrush(colorYellow);
-			hbrGreen = CreateSolidBrush(colorGreen);
-			hbrUnknown = CreateSolidBrush(colorUnknown);
-			hbrOrange=CreateSolidBrush(colorGreenLight);
+			hbrLevelLow = CreateSolidBrush(colorLevelBad);
+			hbrLevelBelowMid = CreateSolidBrush(colorLevelBelowMid);
+			hbrLevelHigh = CreateSolidBrush(colorLevelHigh);
+			hbrLevelUnknown = CreateSolidBrush(colorLevelUnknow);
+			hbrLevelBelowHigh=CreateSolidBrush(colorLevelBelowHigh);
 
-			hTimer=SetTimer(hWnd, dwTimerID, 5000, NULL);
-#ifndef MYDEBUG
+			hTimer=SetTimer(hWnd, dwTimerID, 30 *1000, NULL);	//30 seconds
+
 			iValueLevel = getValueLevel();
-#endif
             break;
 		case WM_TIMER:
 			if(wParam==dwTimerID){
+#ifndef MYDEBUG
 				if(FindWindow(L"TSSHELLWND", NULL)==NULL)
 					PostQuitMessage(-2);
-
+#endif
 				iValueLevel = getValueLevel();
 
 				DEBUGMSG(1, (L"getValueLevel=%i\n", iValueLevel));
@@ -316,28 +340,34 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			iRes=FillRect(hdc, &rect, hBackground);			
 
 			DEBUGMSG(1,(L"Painting for batt=%i\n",iValueLevel));
-				rect.left=blockMargin; rect.top=blockMargin; 
-				rect.right=blockWidth+blockMargin; rect.bottom=blockHeight+blockMargin;
-			if(iValueLevel>=75)
-				iRes=FillRect(hdc, &rect, hbrGreen);
+			//upper bar
+			rect.left=blockMargin; rect.top=blockMargin; 
+			rect.right=blockWidth+blockMargin; rect.bottom=blockHeight+blockMargin;
+
+			if(iValueLevel>75)
+				iRes=FillRect(hdc, &rect, hbrLevelHigh);
 			else
 				iRes=FillRect(hdc, &rect, hBackground);
 
-			if(iValueLevel>=50){
-				rect.left=1; rect.top=2*blockMargin+1*blockHeight; rect.right=blockWidth; rect.bottom=2*blockMargin+2*blockHeight;
-				iRes=FillRect(hdc, &rect, hbrOrange);
+			//second bar
+			rect.left=1; rect.top=2*blockMargin+1*blockHeight; rect.right=blockWidth; rect.bottom=2*blockMargin+2*blockHeight;
+			if(iValueLevel>50){
+				iRes=FillRect(hdc, &rect, hbrLevelBelowHigh);
 			}
-			if(iValueLevel>=25){
-				rect.left=1; rect.top=3*blockMargin+2*blockHeight; rect.right=blockWidth; rect.bottom=3*blockMargin+3*blockHeight;
-				iRes=FillRect(hdc, &rect, hbrYellow);
+
+			//third bar
+			rect.left=1; rect.top=3*blockMargin+2*blockHeight; rect.right=blockWidth; rect.bottom=3*blockMargin+3*blockHeight;
+			if(iValueLevel>25){
+				iRes=FillRect(hdc, &rect, hbrLevelBelowMid);
 			}
-			if(iValueLevel>=15){
-				rect.left=1; rect.top=4*blockMargin+3*blockHeight; rect.right=blockWidth; rect.bottom=4*blockMargin+4*blockHeight;
-				iRes=FillRect(hdc, &rect, hbrRed);
+
+			//forth and last bar
+			rect.left=1; rect.top=4*blockMargin+3*blockHeight; rect.right=blockWidth; rect.bottom=4*blockMargin+4*blockHeight;
+			if(iValueLevel>15){
+				iRes=FillRect(hdc, &rect, hbrLevelLow);
 			}
 			if(iValueLevel<15){
-				rect.left=1; rect.top=4*blockMargin+3*blockHeight; rect.right=blockWidth; rect.bottom=4*blockMargin+4*blockHeight;
-				iRes=FillRect(hdc, &rect, hbrUnknown);
+				iRes=FillRect(hdc, &rect, hbrLevelUnknown);
 			}
 			
             EndPaint(hWnd, &ps);
@@ -349,11 +379,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         case WM_DESTROY:
             PostQuitMessage(0);
 			DeleteObject(hBrBatt);
-			DeleteObject(hbrRed);
-			DeleteObject(hbrGreen);
-			DeleteObject(hbrYellow);
-			DeleteObject(hbrUnknown);
-			DeleteObject(hbrOrange);
+			DeleteObject(hbrLevelLow);
+			DeleteObject(hbrLevelHigh);
+			DeleteObject(hbrLevelBelowMid);
+			DeleteObject(hbrLevelUnknown);
+			DeleteObject(hbrLevelBelowHigh);
 			DeleteObject(hBr);
 			DeleteObject(hPen);
             break;
